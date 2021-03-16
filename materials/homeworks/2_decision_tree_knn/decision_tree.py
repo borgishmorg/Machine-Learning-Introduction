@@ -1,10 +1,6 @@
 import numpy as np
 import scipy.stats
-from matplotlib import pyplot as plt
 from sklearn.base import BaseEstimator
-from sklearn.datasets import make_classification, make_regression, load_digits, load_boston
-from sklearn.model_selection import train_test_split, GridSearchCV
-from sklearn.metrics import accuracy_score, mean_squared_error
 
 
 def entropy(y):    
@@ -55,7 +51,6 @@ class DecisionTree(BaseEstimator):
         self.k = k
         self.left: DecisionTree = None
         self.right: DecisionTree = None
-        self.prediction = None
         self.classes = None
         self.j = None
         self.t = None
@@ -68,56 +63,66 @@ class DecisionTree(BaseEstimator):
         self.debug = debug
     
     def fit(self, X, y):
+        k = len(np.unique(y))
         if self.k is None:
-            self.k = len(set(y))
+            self.k = k
 
         rows, features = X.shape
-        if rows < self.min_samples_split or self.max_depth < 1:
-            if self.regression:
-                self.prediction = y.mean()
-            else:
-                self.classes = y
-                self.prediction = scipy.stats.mode(y)[0][0]
-        else:
-            H = self.criterion_func
-            for j in range(features):
-                v_list = list(set(X[..., j]))
-                v_list.sort()
-                for t in v_list[1:]:
-                    l_index = X[..., j] < t
-                    r_index = ~l_index
-                    l = np.sum(l_index)
-                    Q = H(y) - l*H(y[l_index])/rows - (rows - l)*H(y[r_index])/rows
-                    if Q > self.Q:
-                        self.Q = Q
-                        self.j = j
-                        self.t = t
+        if rows < self.min_samples_split or self.max_depth < 1 or k == 1:
+            self.classes = y
+            return self
+        
+        H = self.criterion_func
 
-            l_index = X[..., self.j] < self.t
-            r_index = ~l_index
+        for j in range(features):
+            for t in np.unique(X[..., j]):
+                l_index = X[..., j] <= t
+                l = np.sum(l_index)
+                
+                if l == 0 or l == rows:
+                    continue
 
-            self.left = DecisionTree(
-                max_depth=self.max_depth-1,
-                min_samples_split=self.min_samples_split,
-                criterion=self.criterion,
-                debug=self.debug,
-                k=self.k
-            )
-            self.left.fit(X[l_index], y[l_index])
-            self.right = DecisionTree(
-                max_depth=self.max_depth-1,
-                min_samples_split=self.min_samples_split,
-                criterion=self.criterion,
-                debug=self.debug,
-                k=self.k
-            )
-            self.right.fit(X[r_index], y[r_index])
+                r_index = ~l_index
+
+                Q = H(y) - l*H(y[l_index])/rows - (rows - l)*H(y[r_index])/rows
+                if Q > self.Q:
+                    self.Q = Q
+                    self.j = j
+                    self.t = t
+        
+        if self.Q == -np.inf:
+            self.classes = y
+            return self
+
+        l_index = X[..., self.j] <= self.t
+        r_index = ~l_index
+
+        self.left = DecisionTree(
+            max_depth=self.max_depth-1,
+            min_samples_split=self.min_samples_split,
+            criterion=self.criterion,
+            debug=self.debug,
+            k=self.k
+        )
+        self.left.fit(X[l_index], y[l_index])
+        self.right = DecisionTree(
+            max_depth=self.max_depth-1,
+            min_samples_split=self.min_samples_split,
+            criterion=self.criterion,
+            debug=self.debug,
+            k=self.k
+        )
+        self.right.fit(X[r_index], y[r_index])
+        return self
 
     
     def predict_one(self, X):
-        if self.prediction is not None:
-            return self.prediction
-        if X[self.j] < self.t:
+        if self.classes is not None:
+            if self.regression:
+                return np.mean(self.classes)
+            else:
+                return scipy.stats.mode(self.classes)[0][0]
+        if X[self.j] <= self.t:
             return self.left.predict_one(X)
         return self.right.predict_one(X)
 
@@ -129,9 +134,9 @@ class DecisionTree(BaseEstimator):
         )
 
     def predict_proba_one(self, X):
-        if self.prediction is not None:
+        if self.classes is not None:
             return np.array([ np.mean(self.classes == i) for i in range(self.k)])
-        if X[self.j] < self.t:
+        if X[self.j] <= self.t:
             return self.left.predict_proba_one(X)
         return self.right.predict_proba_one(X)
 
