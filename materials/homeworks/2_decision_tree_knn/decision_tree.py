@@ -3,22 +3,14 @@ import scipy.stats
 from sklearn.base import BaseEstimator
 
 
-def entropy(y):    
-    unique_y = set(y)
-    res = 0
-    for u in unique_y:
-        p = (y == u).mean()
-        res -= p*np.log2(p)
-    return res
+def entropy(y):
+    p = [len(y[y == k]) / len(y) for k in np.unique(y)]
+    return -np.dot(p, np.log2(p))
 
 
 def gini(y):
-    unique_y = set(y)
-    res = 1
-    for u in unique_y:
-        p = (y == u).mean()
-        res -= p*p
-    return res
+    p = [len(y[y == k]) / len(y) for k in np.unique(y)]
+    return 1 - np.dot(p, p)
 
 
 def variance(y):
@@ -54,7 +46,7 @@ class DecisionTree(BaseEstimator):
         self.classes = None
         self.j = None
         self.t = None
-        self.Q = -np.inf
+        self.Q = np.inf
         self.max_depth = max_depth
         self.min_samples_split = min_samples_split
         self.criterion = criterion
@@ -76,25 +68,27 @@ class DecisionTree(BaseEstimator):
 
         for j in range(features):
             for t in np.unique(X[..., j]):
-                l_index = X[..., j] <= t
+                l_index = X[..., j] < t
                 l = np.sum(l_index)
                 
                 if l == 0 or l == rows:
                     continue
 
                 r_index = ~l_index
+                k1 = np.float64(l/rows)
+                k2 = np.float64((rows - l)/rows)
 
-                Q = H(y) - l*H(y[l_index])/rows - (rows - l)*H(y[r_index])/rows
-                if Q > self.Q:
+                Q = k1*H(y[l_index]) + k2*H(y[r_index])
+                if Q < self.Q:
                     self.Q = Q
                     self.j = j
                     self.t = t
         
-        if self.Q == -np.inf:
+        if self.j == None or self.t == None:
             self.classes = y
             return self
 
-        l_index = X[..., self.j] <= self.t
+        l_index = X[..., self.j] < self.t
         r_index = ~l_index
 
         self.left = DecisionTree(
@@ -103,16 +97,14 @@ class DecisionTree(BaseEstimator):
             criterion=self.criterion,
             debug=self.debug,
             k=self.k
-        )
-        self.left.fit(X[l_index], y[l_index])
+        ).fit(X[l_index], y[l_index])
         self.right = DecisionTree(
             max_depth=self.max_depth-1,
             min_samples_split=self.min_samples_split,
             criterion=self.criterion,
             debug=self.debug,
             k=self.k
-        )
-        self.right.fit(X[r_index], y[r_index])
+        ).fit(X[r_index], y[r_index])
         return self
 
     
@@ -122,7 +114,7 @@ class DecisionTree(BaseEstimator):
                 return np.mean(self.classes)
             else:
                 return scipy.stats.mode(self.classes)[0][0]
-        if X[self.j] <= self.t:
+        if X[self.j] < self.t:
             return self.left.predict_one(X)
         return self.right.predict_one(X)
 
@@ -136,7 +128,7 @@ class DecisionTree(BaseEstimator):
     def predict_proba_one(self, X):
         if self.classes is not None:
             return np.array([ np.mean(self.classes == i) for i in range(self.k)])
-        if X[self.j] <= self.t:
+        if X[self.j] < self.t:
             return self.left.predict_proba_one(X)
         return self.right.predict_proba_one(X)
 
